@@ -13,6 +13,11 @@
       "name": "adhd-reminder",
       "source": "./adhd-reminder",
       "description": "Adds the ADHD output style rules beside each prompt while that style is active"
+    },
+    {
+      "name": "quiet-tools",
+      "source": "./quiet-tools",
+      "description": "Draws each tool call as one summary line and hides its output unless it fails; ctrl+o shows everything"
     }
   ]
 }

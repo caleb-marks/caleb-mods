@@ -1,0 +1,1 @@
+{ "name": "quiet-tools", "version": "0.1.0", "description": "Draws each tool call as one summary line and hides its output unless it fails. Ctrl+O shows everything." }
