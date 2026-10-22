@@ -8,6 +8,9 @@ const TEXT = '#8A8580'
 const MAX = 100
 // Replies wrap at this width so lines stay short enough to scan on a wide terminal.
 const REPLY_COLUMNS = 94
+// A reply's opening line when it is bold as a whole, drawn orange.
+const HEADLINE = /^\s*\*\*([^*\n]+)\*\*[ \t]*(?:\n|$)/
+const HEADLINE_COLOR = '#FF9E3D'
 
 type Input = Record<string, unknown>
 
@@ -117,10 +120,34 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    const drawn = await next(e)
-    if (e.surface !== 'terminal' || (e.viewport?.columns ?? 0) <= REPLY_COLUMNS) return drawn
-    const { Box } = $.ui.resolve(e)
-    return <Box width={REPLY_COLUMNS}>{drawn}</Box>
+    if (e.surface !== 'terminal') return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    const isWide = (e.viewport?.columns ?? 0) > REPLY_COLUMNS
+    const fit = (tree: Awaited<ReturnType<typeof next>>) =>
+      isWide ? <Box width={REPLY_COLUMNS}>{tree}</Box> : tree
+
+    // A reply that opens with a fully bold line: draw that line orange, the rest as usual.
+    const match = e.props.isFirstOfReply && !e.props.isSummary ? HEADLINE.exec(e.props.text) : null
+    if (!match) return fit(await next(e))
+
+    const headline = (match[1] ?? '').replace(/`/g, '')
+    const rest = e.props.text.slice(match[0].length).replace(/^\s+/, '')
+    const head = (
+      <Box>
+        <Text color={TEXT}>● </Text>
+        <Text color={HEADLINE_COLOR} bold>{headline}</Text>
+      </Box>
+    )
+    if (!rest) return fit(head)
+
+    const body = await next({ ...e, props: { ...e.props, text: rest, isFirstOfReply: false } })
+    return fit(
+      <Box flexDirection="column">
+        {head}
+        <Text> </Text>
+        {body}
+      </Box>,
+    )
   }).catch(($, e, next) => next(e))
 
   // Drop the "(ctrl+b to run in background)" line; the key still works.
