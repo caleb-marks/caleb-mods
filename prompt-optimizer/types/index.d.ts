@@ -4,7 +4,7 @@ export type Busy = boolean
 export type Suggestion =
   | { status: 'none' }
   | { status: 'thinking'; prompt: string; answer: string }
-  | { status: 'ready'; text: string }
+  | { status: 'ready'; texts: string[] }
 
 declare module 'claude-code' {
   interface PluginState {

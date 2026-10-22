@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import { parseSuggestions, soundsLikeAgent } from '../hooks/register'
 
 const BAND = {
   plugin: 'prompt-optimizer',
@@ -35,22 +36,23 @@ test('the button rewrites the draft with Opus 5.5, and a second press restores i
   expect(asks[0]).toEqual({ model: 'claude-opus-5-5', effort: 'medium' })
 })
 
-test('in the desktop app, one click on the band sends the next prompt', async ($, on) => {
+// A click copies the suggestion, so it sends as the user's own; when the copy fails, the mod sends it
+const desktopClick = (isCopied: boolean) => async ($: any, on: any) => {
   const sent: string[] = []
+  const copied: string[] = []
   let answerModel: () => void = () => {}
   const asked = new Promise<void>(done => (answerModel = done))
-  const suggested: string[] = []
 
   on('session.surfaces', () => ({ value: ['desktop'] }))
-  on('turn.start', (_, e) => ({ turnId: e.turnId }))
-  on('turn.complete', (_, e) => ({ text: e.answer }))
-  on('prompt.submit', (_, e) => {
+  on('turn.start', (_: any, e: any) => ({ turnId: e.turnId }))
+  on('turn.complete', (_: any, e: any) => ({ text: e.answer }))
+  on('prompt.submit', (_: any, e: any) => {
     sent.push(e.text)
     return { text: e.text }
   })
-  on('prompt.suggest', (_, e) => {
-    suggested.push(e.text)
-    return { isShown: true }
+  on('ui.copy', (_: any, e: any) => {
+    copied.push(e.text)
+    return { value: isCopied ? { isCopied: true } : { isCopied: false, reason: 'no clipboard' } }
   })
   on('model.complete', async () => {
     await asked
@@ -63,14 +65,18 @@ test('in the desktop app, one click on the band sends the next prompt', async ($
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   answerModel()
   await ui.settle?.()
-  expect(suggested).toEqual([])
-  expect((await ui.find({ key: 'use-suggestion' }))?.text).toBe('Run the parser tests.')
+  expect((await ui.find({ key: 'use-suggestion-0' }))?.text).toBe('Run the parser tests.')
 
-  await ui.press({ key: 'use-suggestion' })
-  expect(sent).toEqual(['Run the parser tests.'])
-  expect(await ui.find({ key: 'use-suggestion' })).toBeUndefined()
+  await ui.press({ key: 'use-suggestion-0' })
+  expect(copied).toEqual(['Run the parser tests.'])
+  expect(sent).toEqual(isCopied ? [] : ['Run the parser tests.'])
+  expect(await ui.find({ key: 'use-suggestion-0' })).toBeUndefined()
   await ui.unmount()
-})
+}
+
+test('in the desktop app, one click copies the next prompt to paste and send', desktopClick(true))
+
+test('in the desktop app, when the copy fails, one click sends the next prompt', desktopClick(false))
 
 test('NONE offers no next prompt', async ($, on) => {
   on('session.surfaces', () => ({ value: ['desktop'] }))
@@ -83,7 +89,7 @@ test('NONE offers no next prompt', async ($, on) => {
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   await ui.settle?.()
-  expect(await ui.find({ key: 'use-suggestion' })).toBeUndefined()
+  expect(await ui.find({ key: 'use-suggestion-0' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -116,15 +122,15 @@ test('in the terminal, one click on the band puts the next prompt in the box to 
 
   answerModel()
   await ui.settle?.()
-  const offer = await ui.find({ key: 'use-suggestion' })
+  const offer = await ui.find({ key: 'use-suggestion-0' })
   expect(offer?.text).toBe('Run the tests and fix any failures in the parser.')
-  expect(asks[0]?.model).toBe('claude-opus-5-5')
-  expect(asks[0]?.effort).toBe('medium')
-  expect(asks[0]?.prompt).toContain('add a parser')
+  // A fast first guess, then Opus at medium effort, both from the conversation
+  expect(asks.map(a => [a.model, a.effort])).toEqual([['claude-haiku-5-5', 'low'], ['claude-opus-5-5', 'medium']])
+  expect(asks[1]?.prompt).toContain('add a parser')
 
-  await ui.press({ key: 'use-suggestion' })
+  await ui.press({ key: 'use-suggestion-0' })
   expect(draft).toBe('Run the tests and fix any failures in the parser.')
-  expect(await ui.find({ key: 'use-suggestion' })).toBeUndefined()
+  expect(await ui.find({ key: 'use-suggestion-0' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -147,7 +153,7 @@ test('a suggestion over 19 words is dropped, not cut off', async ($, on) => {
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   answerModel()
   await ui.settle?.()
-  const offer = await ui.find({ key: 'use-suggestion' })
+  const offer = await ui.find({ key: 'use-suggestion-0' })
   expect(offer).toBeUndefined()
   await ui.unmount()
 })
@@ -200,4 +206,20 @@ test('a short exact Goal is kept with no retry', async ($, on) => {
   expect(calls).toBe(1)
   expect(draft).toBe(exact)
   await ui.unmount()
+})
+
+test('a reply with list marks and quotes gives up to 3 clean prompts, and drops lines over 20 words', async () => {
+
+  const long = Array.from({ length: 21 }, (_, i) => `w${i}`).join(' ')
+  expect(parseSuggestions(`1. "Run the parser tests."\n- Commit the parser\n${long}\n* Run the parser tests.\n- Push main\n- Open a PR`)).toEqual([
+    'Run the parser tests.',
+    'Commit the parser',
+    'Push main',
+  ])
+})
+
+test('a reply in the agent voice is not offered as a fast guess', () => {
+  expect(soundsLikeAgent("I can't tell whether the suggester works from here.")).toBe(true)
+  expect(soundsLikeAgent('Should I push the changes?')).toBe(true)
+  expect(soundsLikeAgent('Push the suggester changes to caleb-marks/caleb-mods\nRun /reload-plugins')).toBe(false)
 })
