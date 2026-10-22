@@ -9,7 +9,8 @@ const MAX = 100
 // Replies wrap at this width so lines stay short enough to scan on a wide terminal.
 const REPLY_COLUMNS = 94
 // A reply's opening line when it is bold as a whole, drawn orange.
-const HEADLINE = /^\s*\*\*([^*\n]+)\*\*[ \t]*(?:\n|$)/
+const HEADLINE = /^\s*\*\*([^*\n]*[^*\s][^*\n]*)\*\*[ \t]*(?:\r?\n|$)/
+const REPLY_FG = '#E8E4DE'
 const HEADLINE_COLOR = '#FF9E3D'
 
 type Input = Record<string, unknown>
@@ -119,36 +120,42 @@ export const register: Register = on => {
     return <Box />
   }).catch(($, e, next) => next(e))
 
-  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    if (e.surface !== 'terminal') return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    const isWide = (e.viewport?.columns ?? 0) > REPLY_COLUMNS
-    const fit = (tree: Awaited<ReturnType<typeof next>>) =>
-      isWide ? <Box width={REPLY_COLUMNS}>{tree}</Box> : tree
+  // Replies are drawn here with Markdown, not the engine's node: the engine refuses its
+  // own node under a Box with a width, and the width is what keeps lines short.
+  on('ui.render', { component: 'AssistantMessage' }, ($, e, next) => {
+    if (e.surface !== 'terminal' || e.props.isSummary) return next(e)
+    const { Box, Text, Markdown } = $.ui.resolve(e)
+    const columns = e.viewport?.columns ?? 0
+    const width = columns > REPLY_COLUMNS ? REPLY_COLUMNS : undefined
 
-    // A reply that opens with a fully bold line: draw that line orange, the rest as usual.
-    const match = e.props.isFirstOfReply && !e.props.isSummary ? HEADLINE.exec(e.props.text) : null
-    if (!match) return fit(await next(e))
+    // A reply that opens with a fully bold line: draw that line orange.
+    const match = HEADLINE.exec(e.props.text)
+    const headline = match ? (match[1] ?? '').replace(/`/g, '') : ''
+    const rest = match ? e.props.text.slice(match[0].length).replace(/^(?:[ \t]*\r?\n)+/, '') : e.props.text
+    const bullet = e.props.isFirstOfReply ? '● ' : '  '
 
-    const headline = (match[1] ?? '').replace(/`/g, '')
-    const rest = e.props.text.slice(match[0].length).replace(/^\s+/, '')
-    const head = (
-      <Box>
-        <Text color={TEXT}>● </Text>
-        <Text color={HEADLINE_COLOR} bold>{headline}</Text>
+    return (
+      // A blank row above a headline sets the answer apart from the tool lines over it.
+      <Box flexDirection="column" width={width} marginTop={headline ? 1 : 0}>
+        {headline ? (
+          // No dot: the headline starts in the dot column, left of the tool lines' text.
+          <Text color={HEADLINE_COLOR} bold>{headline}</Text>
+        ) : null}
+        {headline && rest ? <Text> </Text> : null}
+        {rest ? (
+          <Box>
+            <Text color={REPLY_FG}>{headline ? '  ' : bullet}</Text>
+            <Box flexDirection="column" flexGrow={1}>
+              <Markdown text={rest} />
+            </Box>
+          </Box>
+        ) : null}
       </Box>
     )
-    if (!rest) return fit(head)
-
-    const body = await next({ ...e, props: { ...e.props, text: rest, isFirstOfReply: false } })
-    return fit(
-      <Box flexDirection="column">
-        {head}
-        <Text> </Text>
-        {body}
-      </Box>,
-    )
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => {
+    $.ui.log(`quiet-tools: reply drawing failed: ${next.error?.message ?? 'unknown'}`, { to: 'debug' })
+    return next(e)
+  })
 
   // Drop the "(ctrl+b to run in background)" line; the key still works.
   on('ui.render', { component: 'ToolProgress' }, ($, e, next) =>
