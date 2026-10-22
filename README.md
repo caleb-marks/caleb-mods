@@ -13,7 +13,7 @@ While your output style is named `ADHD`, adds the rules from `~/.claude/output-s
 
 ## quiet-tools
 
-Draws each tool call in the terminal as one plain-English line of 20 words or fewer, for example "Check if the job scanner is still running". It hides tool output unless a call fails or is stopped. Press ctrl+o to see the full commands and output. It also asks Claude to write each command description for a beginner.
+Draws each tool call in the terminal as one plain-English line of 20 words or fewer, for example "Check if the job scanner is still running". It hides tool output unless a call fails or is stopped. Press ctrl+o to see the full commands and output. It also asks Claude to write each command description for a beginner. Tool lines are gray so replies stand out, and replies wrap at 94 columns on wide terminals.
 
 ## Install
 

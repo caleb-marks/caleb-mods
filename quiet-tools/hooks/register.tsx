@@ -1,10 +1,13 @@
 import type { Register } from 'claude-code'
 
-// Caleb's palette: blue while running, muted foreground when done (no pure white).
+// Caleb's palette: blue while running, muted gray when done (no pure white).
+// Tool lines are gray so Claude's replies stand out from the steps.
 const RUNNING = '#5FA8FF'
-const DONE = '#8A8580'
-const TEXT = '#E8E4DE'
+const DONE = '#6E6A66'
+const TEXT = '#8A8580'
 const MAX = 100
+// Replies wrap at this width so lines stay short enough to scan on a wide terminal.
+const REPLY_COLUMNS = 94
 
 type Input = Record<string, unknown>
 
@@ -111,6 +114,13 @@ export const register: Register = on => {
     if (e.surface !== 'terminal' || p.isExpanded || p.isErrored || isInterrupted) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box />
+  }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    const drawn = await next(e)
+    if (e.surface !== 'terminal' || (e.viewport?.columns ?? 0) <= REPLY_COLUMNS) return drawn
+    const { Box } = $.ui.resolve(e)
+    return <Box width={REPLY_COLUMNS}>{drawn}</Box>
   }).catch(($, e, next) => next(e))
 
   // Drop the "(ctrl+b to run in background)" line; the key still works.
